@@ -1,0 +1,81 @@
+name,description,query,id,parentId,isFolder
+BDA3,,,0,,true
+Ensure uniqueness,,"// Ensure uniqueness
+CREATE CONSTRAINT user_id_unique IF NOT EXISTS
+FOR (u:User) REQUIRE u.id IS UNIQUE;",1,0,false
+Load nodes,,"// Load nodes
+LOAD CSV WITH HEADERS FROM ""https://raw.githubusercontent.com/harsh22201/CSE557-Big-Data-Analytics/main/Assignment%203/nodes.csv"" AS row
+MERGE (:User {id: toInteger(row.id)});",2,0,false
+Load edges,,"// Load edges
+LOAD CSV WITH HEADERS FROM ""https://raw.githubusercontent.com/harsh22201/CSE557-Big-Data-Analytics/main/Assignment%203/edges.csv"" AS row
+MATCH (u1:User {id: toInteger(row.src)})
+MATCH  (u2:User {id: toInteger(row.dst)})
+MERGE (u1)-[:VOTED_FOR]->(u2);
+MERGE (u1)-[:CONNECTED_TO]-(u2);  ",3,0,false
+Count Nodea & Edges,,"// Count Nodea & Edges
+
+MATCH (n:User)
+WITH count(n) AS total_nodes
+MATCH ()-[r:VOTED_FOR]->()
+RETURN total_nodes, count(r) AS total_edges;",4,0,false
+Create the graph projection,,"// Create the graph projection
+CALL gds.graph.project(
+  'user-voting-graph',
+  'User',
+  'VOTED_FOR'
+);",5,0,false
+Create a undirected graph projection,,"// Create a undirected graph projection 
+CALL gds.graph.project(
+  'user-voting-graph-undirected',
+  'User',
+  {
+    VOTED_FOR: {
+      orientation: 'UNDIRECTED'
+    }
+  }
+);",6,0,false
+Largest WCC,,"// Largest WCC
+CALL gds.wcc.stream('user-voting-graph')
+YIELD nodeId, componentId
+WITH componentId, collect(nodeId) AS nodeIds
+ORDER BY size(nodeIds) DESC
+LIMIT 1
+WITH nodeIds
+MATCH (u:User)-[r:VOTED_FOR]->(v:User)
+WHERE id(u) IN nodeIds AND id(v) IN nodeIds
+RETURN size(nodeIds) AS `Largest WCC Nodes`, count(r) AS `Largest WCC Edges`;",7,0,false
+Largest SCC,,"// Largest SCC
+CALL gds.scc.stream('user-voting-graph')
+YIELD nodeId, componentId
+WITH componentId, collect(nodeId) AS nodeIds
+ORDER BY size(nodeIds) DESC
+LIMIT 1
+WITH nodeIds
+MATCH (u:User)-[r:VOTED_FOR]->(v:User)
+WHERE id(u) IN nodeIds AND id(v) IN nodeIds
+RETURN size(nodeIds) AS `Largest SCC Nodes`, count(r) AS `Largest SCC Edges`;",8,0,false
+Count triangles,,"// Count triangles
+CALL gds.triangleCount.stats('user-voting-graph-undirected')
+YIELD globalTriangleCount
+RETURN globalTriangleCount AS `Total Triangles`;",9,0,false
+Average Clustering Coefficient,,"// Avefrage Clustering Coefficient
+CALL gds.localClusteringCoefficient.stats('user-voting-graph-undirected')
+YIELD averageClusteringCoefficient
+RETURN averageClusteringCoefficient AS `Average Clustering Coefficient`;",10,0,false
+Calculate fraction of closed triplets,,"// Calculate fraction of closed triplets
+CALL gds.triangleCount.stats('user-voting-graph-undirected')
+YIELD globalTriangleCount
+WITH globalTriangleCount AS total_triangles
+
+// Count total open triplets
+MATCH (a:User)-[:VOTED_FOR]-(b:User)-[:VOTED_FOR]-(c:User)
+WHERE id(a) < id(c) AND NOT (a)-[:VOTED_FOR]-(c)
+WITH total_triangles, count(*) AS open_triplets_count
+
+WITH total_triangles, 
+     open_triplets_count AS total_open_triplets,
+     total_triangles + open_triplets_count AS total_triplets
+RETURN total_triangles AS `Triangles`, 
+       total_open_triplets AS `Open Triplets`,
+       total_triplets AS `Total Triplets`,
+       toFloat(total_triangles) / toFloat(total_triplets) AS `Fraction of Closed Triplets`;",11,0,false
